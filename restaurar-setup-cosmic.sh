@@ -9,11 +9,12 @@
 #      (o smart_pause continua ligado: pausa em jogo fullscreen/tela bloqueada)
 #   3. Widget de calendário — canto inferior esquerdo, atrás das janelas,
 #      dia da semana cursivo em pt-BR + data "01 DE NOVEMBRO DE 2026"
-#   4. (opcional) autostart do widget  ->  use a flag --autostart
+#   4. Autostart do widget — inicia sozinho no login (padrão;
+#      desative com a flag --no-autostart)
 #
 # Uso:
-#   bash restaurar-setup-cosmic.sh              # restaura tudo (sem autostart)
-#   bash restaurar-setup-cosmic.sh --autostart   # + inicia o widget no login
+#   bash restaurar-setup-cosmic.sh                # restaura tudo (com autostart)
+#   bash restaurar-setup-cosmic.sh --no-autostart # restaura sem autostart
 #   bash restaurar-setup-cosmic.sh --help
 #
 # É seguro rodar mais de uma vez (idempotente).
@@ -30,12 +31,14 @@ OK()    { printf '  %s✓%s %s\n' "$c_verde" "$c_reset" "$1"; }
 AVISO() { printf '  %s!%s %s\n' "$c_amarelo" "$c_reset" "$1"; }
 ERRO()  { printf '  %s✗%s %s\n' "$c_vermelho" "$c_reset" "$1" >&2; }
 
-COM_AUTOSTART=0
+# Autostart LIGADO por padrão: o widget precisa voltar sozinho no login.
+COM_AUTOSTART=1
 
 # --- Argumentos -------------------------------------------------------------
 for arg in "$@"; do
     case "$arg" in
-        --autostart) COM_AUTOSTART=1 ;;
+        --autostart)    COM_AUTOSTART=1 ;;  # mantido por compatibilidade
+        --no-autostart) COM_AUTOSTART=0 ;;
         -h|--help)
             # Heredoc em vez de "$0": assim o --help também funciona quando
             # o script é baixado via curl | bash (sem arquivo em disco).
@@ -49,16 +52,17 @@ Restaura o setup customizado do desktop COSMIC (Pop!_OS 24.04, Wayland):
      (o smart_pause continua ligado: pausa em jogo fullscreen/tela bloqueada)
   3. Widget de calendário — canto inferior esquerdo, atrás das janelas,
      dia da semana cursivo em pt-BR + data "01 DE NOVEMBRO DE 2026"
-  4. (opcional) autostart do widget  ->  use a flag --autostart
+  4. Autostart do widget — inicia sozinho no login (padrão;
+     desative com a flag --no-autostart)
 
 Uso:
-  bash restaurar-setup-cosmic.sh              # restaura tudo (sem autostart)
-  bash restaurar-setup-cosmic.sh --autostart   # + inicia o widget no login
-  bash restaurar-setup-cosmic.sh --help        # esta ajuda
+  bash restaurar-setup-cosmic.sh                # restaura tudo (com autostart)
+  bash restaurar-setup-cosmic.sh --no-autostart # restaura sem autostart
+  bash restaurar-setup-cosmic.sh --help         # esta ajuda
 
 Via curl (sem clonar):
   curl -fsSL https://raw.githubusercontent.com/DanBenedetti/PopOS-Personalizacao/main/restaurar-setup-cosmic.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/DanBenedetti/PopOS-Personalizacao/main/restaurar-setup-cosmic.sh | bash -s -- --autostart
+  curl -fsSL https://raw.githubusercontent.com/DanBenedetti/PopOS-Personalizacao/main/restaurar-setup-cosmic.sh | bash -s -- --no-autostart
 
 É seguro rodar mais de uma vez (idempotente).
 =============================================================================
@@ -449,7 +453,7 @@ print(f"  \033[1;32m✓\033[0m Pasta de wallpapers: {wall_dir}")
 PYEOF
 
 # =============================================================================
-# 5. AUTOSTART (opcional)
+# 5. AUTOSTART (padrão; desative com --no-autostart)
 # =============================================================================
 if [ "$COM_AUTOSTART" -eq 1 ]; then
     PASSO "Configurando autostart do widget"
@@ -468,7 +472,7 @@ X-GNOME-Autostart-enabled=true
 DEEOF
     OK "Autostart criado (~/.config/autostart/calendar-widget.desktop)"
 else
-    AVISO "Autostart NÃO configurado (rode com --autostart se quiser)"
+    AVISO "Autostart desativado (--no-autostart): o widget NÃO voltará no login"
 fi
 
 # =============================================================================
@@ -511,7 +515,7 @@ fc-list : family | tr ',' '\n' | grep -qi "Dancing Script" \
 printf '\n%s════════════════════════════════════════════════════════%s\n' "$c_azul" "$c_reset"
 printf '%s✨ Restauração concluída!%s\n\n' "$c_verde" "$c_reset"
 printf 'Para usar agora:\n'
-printf '  • Widget:   %s~/.local/bin/calendar-widget%s  (ou inicie na sessão)\n' "$c_azul" "$c_reset"
+printf '  • Widget:   %s~/.local/bin/calendar-widget%s  (inicia sozinho no login)\n' "$c_azul" "$c_reset"
 printf '  • Wallpaper:%saura%s  -> escolha um vídeo/papel na interface\n' "$c_azul" "$c_reset"
 printf '  • Trocar:   %saura next%s      • Pausar: %saura toggle-pause%s\n' \
        "$c_azul" "$c_reset" "$c_azul" "$c_reset"

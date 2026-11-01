@@ -28,10 +28,10 @@ Sem clonar nada:
 curl -fsSL https://raw.githubusercontent.com/DanBenedetti/PopOS-Personalizacao/main/restaurar-setup-cosmic.sh | bash
 ```
 
-Com autostart do widget (inicia junto no login):
+Sem o autostart do widget (por padrão ele **inicia junto no login**):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DanBenedetti/PopOS-Personalizacao/main/restaurar-setup-cosmic.sh | bash -s -- --autostart
+curl -fsSL https://raw.githubusercontent.com/DanBenedetti/PopOS-Personalizacao/main/restaurar-setup-cosmic.sh | bash -s -- --no-autostart
 ```
 
 Ou clonando o repositório:
@@ -48,8 +48,9 @@ bash restaurar-setup-cosmic.sh
 
 | Flag | Efeito |
 |---|---|
-| *(nenhuma)* | restaura dependências + Aura + widget |
-| `--autostart` | cria `~/.config/autostart/calendar-widget.desktop` |
+| *(nenhuma)* | restaura dependências + Aura + widget **e cria o autostart** |
+| `--autostart` | idem ao padrão (mantido por compatibilidade) |
+| `--no-autostart` | restaura **sem** criar o autostart do widget |
 | `--help` | mostra a ajuda (funciona também via `curl \| bash`) |
 
 ---
@@ -64,7 +65,7 @@ bash restaurar-setup-cosmic.sh
 5. **Aplica a configuração do Aura** — preserva um `config.json` existente
    ou cria do zero (schema v1.9.2), garantindo `auto_pause=false` e
    `smart_pause=true`
-6. **(opcional)** cria o autostart do widget
+6. **cria o autostart do widget** (padrão; desative com `--no-autostart`)
 7. **Verifica tudo** — compila o widget, testa Aura/mpvpaper, valida o JSON
 
 O script é **idempotente**: rodar várias vezes não quebra nada.
@@ -97,7 +98,7 @@ Estão no topo do `calendar-widget`, fáceis de calibrar:
 - **Não faz backup dos vídeos de wallpaper.** O script cria
   `~/Imagens/Wallpapers/Aura/`, mas os arquivos de mídia precisam ser
   copiados manualmente.
-- O `--autostart` é opt-in (por padrão o widget só vive durante a sessão).
+- Para **não** ter o widget no login, rode o script com `--no-autostart`.
 
 ## Licença
 
