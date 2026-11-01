@@ -1,0 +1,14 @@
+# Byte-compiled / cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Backups locais de config (não levar para o repo)
+*.bak
+*.bak-*
+config.json.bak*
+
+# Editor / SO
+.DS_Store
+*.swp
+*~

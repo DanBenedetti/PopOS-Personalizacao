@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""
+calendar-widget — Widget de calendário para COSMIC Desktop (Wayland).
+
+Mostra no canto inferior esquerdo da tela:
+  • dia da semana por extenso, em português, fonte cursiva  (ex: "Sábado")
+  • data no formato "01 DE NOVEMBRO DE 2026"
+
+Usa Wayland Layer Shell (a mesma tecnologia do wallpaper animado),
+ficando fixo no canto inferior esquerdo, atrás de todas as janelas
+(.layer BOTTOM, como se fosse parte do papel de parede), sem moldura
+de janela e sem interferir nos cliques (KeyboardMode.NONE).
+"""
+
+import gi
+import datetime
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+
+from gi.repository import Gtk, GtkLayerShell, GLib, Gdk
+
+# ----------------------------------------------------------------------------
+# Textos em português (não dependemos de locale do sistema)
+# ----------------------------------------------------------------------------
+DIAS_SEMANA = [
+    "Domingo",
+    "Segunda-feira",
+    "Terça-feira",
+    "Quarta-feira",
+    "Quinta-feira",
+    "Sexta-feira",
+    "Sábado",
+]
+
+MESES = [
+    "JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO",
+    "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO",
+]
+
+# ----------------------------------------------------------------------------
+# Aparência
+# ----------------------------------------------------------------------------
+# Fonte cursiva para o dia da semana, com fallbacks caso a principal falte.
+FONTES_CURSIVAS = [
+    "Dancing Script",
+    "Kaushan Script",
+    "Comfortaa",
+    "Ubuntu",
+]
+
+COR_DIA = "#FFFFFF"
+COR_DATA = "rgba(255, 255, 255, 0.82)"
+
+CSS = f"""
+.cal-root {{
+    background: transparent;
+    border: none;
+    border-radius: 0;
+}}
+.cal-dia {{
+    color: {COR_DIA};
+    font-size: 140px;
+    text-shadow: 0 4px 24px rgba(0, 0, 0, 0.85), 0 1px 4px rgba(0, 0, 0, 0.75);
+}}
+.cal-data {{
+    color: {COR_DATA};
+    font-size: 34px;
+    font-weight: bold;
+    letter-spacing: 6.4px;
+    text-shadow: 0 3px 16px rgba(0, 0, 0, 0.85), 0 1px 3px rgba(0, 0, 0, 0.75);
+}}
+"""
+
+
+def fonte_cursiva_disponivel():
+    """Retorna a primeira fonte cursiva instalada no sistema."""
+    try:
+        import subprocess
+        instaladas = subprocess.run(
+            ["fc-list", ":", "family"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+        familias = {f.strip() for f in instaladas.replace(",", "\n").splitlines()}
+        for nome in FONTES_CURSIVAS:
+            if nome in familias:
+                return nome
+    except Exception:
+        pass
+    return FONTES_CURSIVAS[-1]
+
+
+def textos_de_hoje():
+    """Gera (dia_da_semana, data) para a data atual."""
+    agora = datetime.datetime.now()
+    # weekday(): 0=segunda..6=domingo  ->  ajustar para 0=domingo
+    dia = DIAS_SEMANA[(agora.weekday() + 1) % 7]
+    data = f"{agora.day:02d} DE {MESES[agora.month - 1]} DE {agora.year}"
+    return dia, data
+
+
+class CalendarWidget:
+    def __init__(self):
+        self.fonte = fonte_cursiva_disponivel()
+        self._ultimo = None
+
+        self.win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        self.win.set_title("Calendar Widget")
+        self.win.set_app_paintable(True)
+        self.win.set_resizable(False)
+        self.win.set_decorated(False)
+
+        # Fundo transparente de verdade (necessário em GTK3 sobre Wayland)
+        visual = self.win.get_screen().get_rgba_visual()
+        if visual is not None and self.win.get_screen().is_composited():
+            self.win.set_visual(visual)
+
+        # --- Layer Shell: fixo no canto inferior esquerdo ---
+        # Layer BOTTOM: acima do wallpaper (BACKGROUND), porém ATRÁS de
+        # todas as janelas -> o texto parece parte do papel de parede.
+        # (OVERLAY ficaria por cima dos aplicativos; TOP por cima das janelas
+        #  e na mesma altura do dock.)
+        GtkLayerShell.init_for_window(self.win)
+        GtkLayerShell.set_layer(self.win, GtkLayerShell.Layer.BOTTOM)
+        GtkLayerShell.set_anchor(self.win, GtkLayerShell.Edge.BOTTOM, True)
+        GtkLayerShell.set_anchor(self.win, GtkLayerShell.Edge.LEFT, True)
+        # Margem inferior folgada para não nascer em cima do dock (que fica
+        # ancorado na borda inferior do COSMIC).
+        GtkLayerShell.set_margin(self.win, GtkLayerShell.Edge.BOTTOM, 96)
+        GtkLayerShell.set_margin(self.win, GtkLayerShell.Edge.LEFT, 44)
+        # -1 => não reserva espaço e não é empurrado por zonas exclusivas
+        GtkLayerShell.set_exclusive_zone(self.win, -1)
+        # Não captura teclado/cliques: passa direto pra janela de baixo
+        try:
+            GtkLayerShell.set_keyboard_mode(
+                self.win, GtkLayerShell.KeyboardMode.NONE
+            )
+        except AttributeError:
+            GtkLayerShell.set_keyboard_interactivity(self.win, False)
+
+        # --- Conteúdo ---
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.box.set_valign(Gtk.Align.CENTER)
+        self.box.set_halign(Gtk.Align.CENTER)
+        self.box.set_margin_top(18)
+        self.box.set_margin_bottom(18)
+        self.box.set_margin_start(30)
+        self.box.set_margin_end(30)
+        self.box.get_style_context().add_class("cal-root")
+
+        self.lbl_dia = Gtk.Label()
+        self.lbl_dia.set_halign(Gtk.Align.CENTER)
+        self.lbl_dia.get_style_context().add_class("cal-dia")
+
+        self.lbl_data = Gtk.Label()
+        self.lbl_data.set_halign(Gtk.Align.CENTER)
+        self.lbl_data.get_style_context().add_class("cal-data")
+
+        self.box.pack_start(self.lbl_dia, False, False, 0)
+        self.box.pack_start(self.lbl_data, False, False, 6)
+        self.win.add(self.box)
+
+        self._aplicar_css()
+        self.atualizar()
+
+        self.win.connect("destroy", Gtk.main_quit)
+        self.win.show_all()
+
+        # Checa a cada 20s; só redesenha se o texto mudou (vira o relógio
+        # da meia-noite pra frente sem custo).
+        GLib.timeout_add_seconds(20, self._tick)
+
+    def _aplicar_css(self):
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS.encode("utf-8"))
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
+    def atualizar(self):
+        dia, data = textos_de_hoje()
+        if (dia, data) == self._ultimo:
+            return
+        self._ultimo = (dia, data)
+
+        # Fonte cursiva via markup Pango (escapando nada: textos são nossos)
+        self.lbl_dia.set_markup(
+            f'<span font_desc="{self.fonte} 140">{dia}</span>'
+        )
+        self.lbl_data.set_markup(f'<span font_desc="Ubuntu 34">{data}</span>')
+        self.win.resize(1, 1)
+
+    def _tick(self):
+        self.atualizar()
+        return True  # mantém o timer vivo
+
+    def run(self):
+        Gtk.main()
+
+
+if __name__ == "__main__":
+    CalendarWidget().run()
