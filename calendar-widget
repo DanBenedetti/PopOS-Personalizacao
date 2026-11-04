@@ -2,23 +2,35 @@
 """
 calendar-widget — Widget de calendário para COSMIC Desktop (Wayland).
 
-Mostra no canto inferior esquerdo da tela:
+Mostra no canto inferior da tela:
   • dia da semana por extenso, em português, fonte cursiva  (ex: "Sábado")
   • data no formato "01 DE NOVEMBRO DE 2026"
 
 Usa Wayland Layer Shell (a mesma tecnologia do wallpaper animado),
-ficando fixo no canto inferior esquerdo, atrás de todas as janelas
-(.layer BOTTOM, como se fosse parte do papel de parede), sem moldura
-de janela e sem interferir nos cliques (KeyboardMode.NONE).
+ficando fixo no canto, atrás de todas as janelas (.layer BOTTOM, como se
+fosse parte do papel de parede), sem moldura de janela e sem interferir
+nos cliques (KeyboardMode.NONE).
+
+Personalização (posição, fonte, tamanhos) em:
+    ~/.config/calendar-widget/config.ini
+O arquivo é criado com os valores padrão na primeira execução. Para editar
+sem mexer no arquivo, use o configurador gráfico `calendar-widget-config`.
 """
 
-import gi
+import configparser
 import datetime
+import os
+import subprocess
+import sys
+from pathlib import Path
 
+import gi
+
+gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
 
-from gi.repository import Gtk, GtkLayerShell, GLib, Gdk
+from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
 
 # ----------------------------------------------------------------------------
 # Textos em português (não dependemos de locale do sistema)
@@ -38,21 +50,175 @@ MESES = [
     "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO",
 ]
 
-# ----------------------------------------------------------------------------
-# Aparência
-# ----------------------------------------------------------------------------
-# Fonte cursiva para o dia da semana, com fallbacks caso a principal falte.
-FONTES_CURSIVAS = [
-    "Dancing Script",
-    "Kaushan Script",
-    "Comfortaa",
-    "Ubuntu",
-]
-
 COR_DIA = "#FFFFFF"
 COR_DATA = "rgba(255, 255, 255, 0.82)"
 
-CSS = f"""
+# Reservas usadas só quando a fonte pedida não estiver instalada.
+RESERVAS_DIA = ["Dancing Script", "Kaushan Script", "Comfortaa", "Ubuntu", "Sans"]
+RESERVAS_DATA = ["Ubuntu", "DejaVu Sans", "Sans"]
+
+# ----------------------------------------------------------------------------
+# Configuração
+# ----------------------------------------------------------------------------
+CAMINHO_CONFIG = Path(
+    os.environ.get("CALENDAR_WIDGET_CONFIG", "~/.config/calendar-widget/config.ini")
+).expanduser()
+
+PADROES = {
+    "posicao": {
+        "ancora_horizontal": "esquerda",  # esquerda | direita
+        "margem_lateral": 44,             # distância da borda lateral (px)
+        "margem_inferior": 56,            # distância do rodapé (px) — menor = mais baixo
+    },
+    "texto": {
+        "fonte_dia": "Dancing Script",
+        "tamanho_dia": 140,
+        "fonte_data": "Ubuntu",
+        "tamanho_data": 34,
+        "espacamento": 6,                 # espaço entre as duas linhas (px)
+    },
+}
+
+# Faixas aceitas: valores fora delas são cortados para o limite.
+LIMITES = {
+    ("posicao", "margem_lateral"): (0, 2000),
+    ("posicao", "margem_inferior"): (0, 2000),
+    ("texto", "tamanho_dia"): (8, 500),
+    ("texto", "tamanho_data"): (6, 500),
+    ("texto", "espacamento"): (0, 200),
+}
+
+ANCORAS = ("esquerda", "direita")
+
+MODELO_CONFIG = """\
+# calendar-widget — configuração
+# Edite e reinicie o widget, ou use o configurador gráfico:
+#     calendar-widget-config
+# Todos os valores numéricos estão em pixels.
+
+[posicao]
+# Borda onde o widget se apoia: esquerda | direita
+ancora_horizontal = {ancora_horizontal}
+# Distância da borda lateral escolhida acima
+margem_lateral = {margem_lateral}
+# Distância do rodapé da tela — menor deixa o widget mais baixo
+margem_inferior = {margem_inferior}
+
+[texto]
+# Nome exato da família da fonte (confira com: fc-list : family)
+fonte_dia = {fonte_dia}
+# Tamanho da fonte do dia da semana
+tamanho_dia = {tamanho_dia}
+# Fonte e tamanho da linha da data
+fonte_data = {fonte_data}
+tamanho_data = {tamanho_data}
+# Espaço entre o dia da semana e a data
+espacamento = {espacamento}
+"""
+
+
+def _como_int(valor, padrao, limites):
+    """Converte para inteiro; em caso de lixo, usa o padrão."""
+    try:
+        numero = int(str(valor).strip())
+    except (TypeError, ValueError):
+        return padrao
+    minimo, maximo = limites
+    return max(minimo, min(maximo, numero))
+
+
+def carregar_config(caminho=None):
+    """Lê o config.ini; qualquer valor ausente/inválido cai no padrão."""
+    caminho = Path(caminho).expanduser() if caminho else CAMINHO_CONFIG
+    config = {secao: dict(chaves) for secao, chaves in PADROES.items()}
+
+    parser = configparser.ConfigParser()
+    try:
+        lido = parser.read(caminho, encoding="utf-8")
+    except (configparser.Error, OSError) as erro:
+        print(
+            f"calendar-widget: não consegui ler {caminho} ({erro}); usando padrões",
+            file=sys.stderr,
+        )
+        return config
+
+    if not lido:
+        return config
+
+    for secao, chaves in PADROES.items():
+        if not parser.has_section(secao):
+            continue
+        for chave, padrao in chaves.items():
+            bruto = parser.get(secao, chave, fallback=None)
+            if bruto is None:
+                continue
+            if isinstance(padrao, int):
+                limites = LIMITES.get((secao, chave), (0, 100000))
+                config[secao][chave] = _como_int(bruto, padrao, limites)
+            else:
+                valor = bruto.strip().strip('"').strip("'")
+                config[secao][chave] = valor or padrao
+
+    ancora = str(config["posicao"]["ancora_horizontal"]).lower()
+    config["posicao"]["ancora_horizontal"] = (
+        ancora if ancora in ANCORAS else PADROES["posicao"]["ancora_horizontal"]
+    )
+    return config
+
+
+def salvar_config(config, caminho=None):
+    """Grava o config.ini (com comentários) e devolve o caminho usado."""
+    caminho = Path(caminho).expanduser() if caminho else CAMINHO_CONFIG
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    valores = {
+        **config["posicao"],
+        **config["texto"],
+    }
+    caminho.write_text(MODELO_CONFIG.format(**valores), encoding="utf-8")
+    return caminho
+
+
+# ----------------------------------------------------------------------------
+# Fontes
+# ----------------------------------------------------------------------------
+def familias_instaladas():
+    """Conjunto com as famílias que o sistema tem (vazio se fc-list faltar)."""
+    try:
+        saida = subprocess.run(
+            ["fc-list", ":", "family"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception:
+        return set()
+
+    familias = set()
+    for linha in saida.splitlines():
+        for nome in linha.split(","):
+            nome = nome.strip()
+            if nome:
+                familias.add(nome)
+    return familias
+
+
+def resolver_fonte(pedida, reservas, instaladas):
+    """Devolve a fonte pedida se existir; senão a primeira reserva instalada."""
+    if not instaladas:
+        # Sem fc-list não dá para checar: confia na configuração.
+        return pedida
+
+    por_nome = {familia.lower(): familia for familia in instaladas}
+    for candidata in [pedida] + list(reservas):
+        if not candidata:
+            continue
+        achada = por_nome.get(candidata.lower())
+        if achada:
+            return achada
+    return "Sans"
+
+
+def montar_css(texto):
+    """CSS gerado a partir dos tamanhos configurados."""
+    return f"""
 .cal-root {{
     background: transparent;
     border: none;
@@ -60,34 +226,17 @@ CSS = f"""
 }}
 .cal-dia {{
     color: {COR_DIA};
-    font-size: 140px;
+    font-size: {texto["tamanho_dia"]}px;
     text-shadow: 0 4px 24px rgba(0, 0, 0, 0.85), 0 1px 4px rgba(0, 0, 0, 0.75);
 }}
 .cal-data {{
     color: {COR_DATA};
-    font-size: 34px;
+    font-size: {texto["tamanho_data"]}px;
     font-weight: bold;
     letter-spacing: 6.4px;
     text-shadow: 0 3px 16px rgba(0, 0, 0, 0.85), 0 1px 3px rgba(0, 0, 0, 0.75);
 }}
 """
-
-
-def fonte_cursiva_disponivel():
-    """Retorna a primeira fonte cursiva instalada no sistema."""
-    try:
-        import subprocess
-        instaladas = subprocess.run(
-            ["fc-list", ":", "family"],
-            capture_output=True, text=True, timeout=10,
-        ).stdout
-        familias = {f.strip() for f in instaladas.replace(",", "\n").splitlines()}
-        for nome in FONTES_CURSIVAS:
-            if nome in familias:
-                return nome
-    except Exception:
-        pass
-    return FONTES_CURSIVAS[-1]
 
 
 def textos_de_hoje():
@@ -100,8 +249,32 @@ def textos_de_hoje():
 
 
 class CalendarWidget:
-    def __init__(self):
-        self.fonte = fonte_cursiva_disponivel()
+    def __init__(self, config=None, caminho_config=None):
+        self.caminho_config = (
+            Path(caminho_config).expanduser() if caminho_config else CAMINHO_CONFIG
+        )
+        self.config = config or carregar_config(self.caminho_config)
+        self.texto = self.config["texto"]
+        posicao = self.config["posicao"]
+
+        instaladas = familias_instaladas()
+        self.fonte_dia = resolver_fonte(
+            self.texto["fonte_dia"], RESERVAS_DIA, instaladas
+        )
+        self.fonte_data = resolver_fonte(
+            self.texto["fonte_data"], RESERVAS_DATA, instaladas
+        )
+        for pedida, usada in (
+            (self.texto["fonte_dia"], self.fonte_dia),
+            (self.texto["fonte_data"], self.fonte_data),
+        ):
+            if pedida.lower() != usada.lower():
+                print(
+                    f"calendar-widget: fonte '{pedida}' não instalada; "
+                    f"usando '{usada}'",
+                    file=sys.stderr,
+                )
+
         self._ultimo = None
 
         self.win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
@@ -115,7 +288,7 @@ class CalendarWidget:
         if visual is not None and self.win.get_screen().is_composited():
             self.win.set_visual(visual)
 
-        # --- Layer Shell: fixo no canto inferior esquerdo ---
+        # --- Layer Shell: fixo no canto inferior ---
         # Layer BOTTOM: acima do wallpaper (BACKGROUND), porém ATRÁS de
         # todas as janelas -> o texto parece parte do papel de parede.
         # (OVERLAY ficaria por cima dos aplicativos; TOP por cima das janelas
@@ -123,11 +296,19 @@ class CalendarWidget:
         GtkLayerShell.init_for_window(self.win)
         GtkLayerShell.set_layer(self.win, GtkLayerShell.Layer.BOTTOM)
         GtkLayerShell.set_anchor(self.win, GtkLayerShell.Edge.BOTTOM, True)
-        GtkLayerShell.set_anchor(self.win, GtkLayerShell.Edge.LEFT, True)
-        # Margem inferior folgada para não nascer em cima do dock (que fica
-        # ancorado na borda inferior do COSMIC).
-        GtkLayerShell.set_margin(self.win, GtkLayerShell.Edge.BOTTOM, 96)
-        GtkLayerShell.set_margin(self.win, GtkLayerShell.Edge.LEFT, 44)
+        if posicao["ancora_horizontal"] == "direita":
+            GtkLayerShell.set_anchor(self.win, GtkLayerShell.Edge.RIGHT, True)
+            borda_lateral = GtkLayerShell.Edge.RIGHT
+        else:
+            GtkLayerShell.set_anchor(self.win, GtkLayerShell.Edge.LEFT, True)
+            borda_lateral = GtkLayerShell.Edge.LEFT
+        # Margem inferior maior = widget mais alto na tela.
+        GtkLayerShell.set_margin(
+            self.win, GtkLayerShell.Edge.BOTTOM, posicao["margem_inferior"]
+        )
+        GtkLayerShell.set_margin(
+            self.win, borda_lateral, posicao["margem_lateral"]
+        )
         # -1 => não reserva espaço e não é empurrado por zonas exclusivas
         GtkLayerShell.set_exclusive_zone(self.win, -1)
         # Não captura teclado/cliques: passa direto pra janela de baixo
@@ -157,7 +338,9 @@ class CalendarWidget:
         self.lbl_data.get_style_context().add_class("cal-data")
 
         self.box.pack_start(self.lbl_dia, False, False, 0)
-        self.box.pack_start(self.lbl_data, False, False, 6)
+        self.box.pack_start(
+            self.lbl_data, False, False, self.texto["espacamento"]
+        )
         self.win.add(self.box)
 
         self._aplicar_css()
@@ -172,7 +355,7 @@ class CalendarWidget:
 
     def _aplicar_css(self):
         provider = Gtk.CssProvider()
-        provider.load_from_data(CSS.encode("utf-8"))
+        provider.load_from_data(montar_css(self.texto).encode("utf-8"))
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(),
             provider,
@@ -185,11 +368,15 @@ class CalendarWidget:
             return
         self._ultimo = (dia, data)
 
-        # Fonte cursiva via markup Pango (escapando nada: textos são nossos)
+        # Fonte via markup Pango (escapando o nome: vem da configuração)
+        fonte_dia = GLib.markup_escape_text(self.fonte_dia, -1)
+        fonte_data = GLib.markup_escape_text(self.fonte_data, -1)
         self.lbl_dia.set_markup(
-            f'<span font_desc="{self.fonte} 140">{dia}</span>'
+            f'<span font_desc="{fonte_dia} {self.texto["tamanho_dia"]}">{dia}</span>'
         )
-        self.lbl_data.set_markup(f'<span font_desc="Ubuntu 34">{data}</span>')
+        self.lbl_data.set_markup(
+            f'<span font_desc="{fonte_data} {self.texto["tamanho_data"]}">{data}</span>'
+        )
         self.win.resize(1, 1)
 
     def _tick(self):
@@ -201,4 +388,14 @@ class CalendarWidget:
 
 
 if __name__ == "__main__":
+    # Primeira execução: cria o config.ini para o arquivo ficar descobrível
+    # e editável à mão.
+    if not CAMINHO_CONFIG.exists():
+        try:
+            salvar_config(carregar_config())
+        except OSError as erro:
+            print(
+                f"calendar-widget: não consegui criar {CAMINHO_CONFIG} ({erro})",
+                file=sys.stderr,
+            )
     CalendarWidget().run()

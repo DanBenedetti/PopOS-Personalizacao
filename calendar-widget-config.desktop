@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Calendário — Ajustes
+GenericName=Widget de calendário
+Comment=Ajusta posição, fonte e tamanhos do widget de calendário
+Exec=sh -c "\\$HOME/.local/bin/calendar-widget-config"
+Icon=x-office-calendar
+Terminal=false
+StartupNotify=true
+Categories=Settings;DesktopSettings;
+Keywords=calendario;widget;fonte;tamanho;posicao;ajustes;

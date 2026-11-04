@@ -12,6 +12,9 @@ O que ele instala:
 - **Widget de calendário** no canto inferior esquerdo: dia da semana
   por extenso em português com fonte cursiva (`Dancing Script`) e a data
   no formato `01 DE NOVEMBRO DE 2026`.
+- **Configurador gráfico** (`calendar-widget-config`) para ajustar posição,
+  fonte e tamanhos, com prévia da tela e botão **Aplicar** — com atalho
+  **Calendário — Ajustes** no menu de aplicativos.
 
 O widget usa **Wayland Layer Shell** na camada `BOTTOM` — acima do wallpaper,
 mas **atrás de todas as janelas**, com `KeyboardMode.NONE` (cliques e teclado
@@ -34,7 +37,19 @@ Sem o autostart do widget (por padrão ele **inicia junto no login**):
 curl -fsSL https://raw.githubusercontent.com/DanBenedetti/PopOS-Personalizacao/main/restaurar-setup-cosmic.sh | bash -s -- --no-autostart
 ```
 
-Ou clonando o repositório:
+**Só o widget de calendário** (sem Aura/wallpaper): rode o instalador
+dedicado dentro da pasta do projeto — ele cria o atalho do menu, o
+`config.ini` e o autostart:
+
+```bash
+git clone https://github.com/DanBenedetti/PopOS-Personalizacao.git
+cd PopOS-Personalizacao
+bash instalar-widget-calendario.sh
+```
+
+Opções: `--no-autostart`, `--sem-iniciar`, `--help`.
+
+Ou clonando o repositório (setup completo, com Aura):
 
 ```bash
 git clone https://github.com/DanBenedetti/PopOS-Personalizacao.git
@@ -62,11 +77,15 @@ bash restaurar-setup-cosmic.sh
    `python3-gi`, `fonts-dancingscript`, `libmpv2`, `ffmpeg`
 3. **Instala o Aura** — instalador oficial, com checksum SHA-256
 4. **Grava o widget** em `~/.local/bin/calendar-widget`
-5. **Aplica a configuração do Aura** — preserva um `config.json` existente
+5. **Grava o configurador** em `~/.local/bin/calendar-widget-config`, cria
+   `~/.config/calendar-widget/config.ini` (preservado se já existir) e o
+   atalho `~/.local/share/applications/calendar-widget-config.desktop`
+6. **Aplica a configuração do Aura** — preserva um `config.json` existente
    ou cria do zero (schema v1.9.2), garantindo `auto_pause=false` e
    `smart_pause=true`
-6. **cria o autostart do widget** (padrão; desative com `--no-autostart`)
-7. **Verifica tudo** — compila o widget, testa Aura/mpvpaper, valida o JSON
+7. **cria o autostart do widget** (padrão; desative com `--no-autostart`)
+8. **Verifica tudo** — compila widget/configurador, testa Aura/mpvpaper,
+   valida os JSONs e o atalho do menu
 
 O script é **idempotente**: rodar várias vezes não quebra nada.
 
@@ -77,19 +96,46 @@ O script é **idempotente**: rodar várias vezes não quebra nada.
 | Arquivo | Descrição |
 |---|---|
 | `restaurar-setup-cosmic.sh` | script de restauração completo e **autocontido** (o widget vai embutido) |
+| `instalar-widget-calendario.sh` | instalador **só do widget** (usa os arquivos desta pasta; cria atalho, config e autostart) |
 | `calendar-widget` | widget de calendário — Python 3 + GTK3 + `gtk-layer-shell` |
+| `calendar-widget-config` | configurador gráfico do widget (GTK3) |
+| `calendar-widget-config.desktop` | atalho de menu do configurador |
 
-### Parâmetros de aparência do widget
+### Personalizar o widget
 
-Estão no topo do `calendar-widget`, fáceis de calibrar:
+**Pela interface (recomendado):** abra **Calendário — Ajustes** no menu de
+aplicativos, ou rode no terminal:
 
-| Onde | Valor | O que controla |
-|---|---|---|
-| CSS `.cal-dia` / `font_desc` | `140px` | tamanho do dia da semana |
-| CSS `.cal-data` / `font_desc` | `34px` | tamanho da data |
-| `pack_start(...)` | `6` | espaçamento entre as linhas |
-| `Edge.BOTTOM, 96` | `96` | margem inferior (folga do dock) |
-| `Layer.BOTTOM` | — | camada: atrás das janelas |
+```bash
+calendar-widget-config
+```
+
+A janela tem prévia de uma tela 1920×1080, escolha da borda (esquerda/direita),
+margens em pixels, fonte e tamanho de cada linha, e espaço entre elas.
+**Aplicar** grava a configuração e reinicia o widget na hora; **Restaurar
+padrões** volta aos valores originais.
+
+**Pelo arquivo** `~/.config/calendar-widget/config.ini`:
+
+```ini
+[posicao]
+ancora_horizontal = esquerda   # esquerda | direita
+margem_lateral = 44            # distância da borda lateral escolhida
+margem_inferior = 56           # distância do rodapé: menor = mais baixo
+
+[texto]
+fonte_dia = Dancing Script     # nome da família (veja: fc-list : family)
+tamanho_dia = 140              # px
+fonte_data = Ubuntu
+tamanho_data = 34              # px
+espacamento = 6               # espaço entre as duas linhas
+```
+
+O arquivo é criado com os padrões na primeira execução. Valores ausentes,
+inválidos ou fora de faixa caem no padrão sem quebrar o widget, e uma fonte
+não instalada usa a reserva mais próxima (aviso no terminal). Depois de editar
+à mão, reinicie o widget para valer — o configurador relê o arquivo ao abrir,
+e o **Aplicar** dele reinicia o widget.
 
 ---
 
